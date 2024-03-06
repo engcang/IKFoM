@@ -32,6 +32,11 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+*  This file is modified by:
+*  Eungchang Mason Lee (eungchang_mason@kaist.ac.kr)
+*/
+
 #ifndef ESEKFOM_EKF_HPP
 #define ESEKFOM_EKF_HPP
 
@@ -50,6 +55,9 @@
 #include "../mtk/types/S2.hpp"
 #include "../mtk/startIdx.hpp"
 #include "../mtk/build_manifold.hpp"
+/// TBB
+#include <tbb/tbb.h> // For parallel programming
+
 
 namespace esekfom {
 
@@ -133,6 +141,25 @@ public:
 		x_.build_S2_state();
 		x_.build_SO3_state();
 		x_.build_vect_state();
+
+		// m: 24 + 6*SW (all states), n: 23 + 6*SW (all states - 1, Gravity as S2)
+		// process_noise_dof: 12 (IMU 6 + IMU bias 6)
+		// x_.vect_state.size(): 5 + SW size
+		// for (std::vector<std::pair<std::pair<int, int>, int> >::iterator it = x_.vect_state.begin(); it != x_.vect_state.end(); it++) {
+			// int idx = (*it).first.first; // index in n
+			// int dim = (*it).first.second; // index in m
+			// int dof = (*it).second; // 3 fixed, 3D vector
+		// }
+		// x_.SO3_state.size(): 2 + SW size
+		// for (std::vector<std::pair<int, int> >::iterator it = x_.SO3_state.begin(); it != x_.SO3_state.end(); it++) {
+		// 	int idx = (*it).first; // index in n
+		// 	int dim = (*it).second; // index in m
+		// }
+		// x_.S2_state.size(): 1 fixed
+		// for (std::vector<std::pair<int, int> >::iterator it = x_.S2_state.begin(); it != x_.S2_state.end(); it++) {
+			// int idx = (*it).first; // index in n, 21 fixed
+			// int dim = (*it).second; // index in m, 21 fixed
+		// }
 	}
 
 	// iterated error state EKF propogation
@@ -147,10 +174,11 @@ public:
 		x_.oplus(f_, dt);
 
 		F_x1 = cov::Identity();
-		for (std::vector<std::pair<std::pair<int, int>, int> >::iterator it = x_.vect_state.begin(); it != x_.vect_state.end(); it++) {
-			int idx = (*it).first.first;
-			int dim = (*it).first.second;
-			int dof = (*it).second;
+		tbb::parallel_for<size_t>(0, x_.vect_state.size(), 1, [&](size_t vect_idx_)
+		{
+			int idx = x_.vect_state[vect_idx_].first.first;
+			int dim = x_.vect_state[vect_idx_].first.second;
+			int dof = x_.vect_state[vect_idx_].second;
 			for(int i = 0; i < n; i++){
 				for(int j=0; j<dof; j++)
 				{f_x_final(idx+j, i) = f_x_(dim+j, i);}	
@@ -159,12 +187,14 @@ public:
 				for(int j=0; j<dof; j++)
 				{f_w_final(idx+j, i) = f_w_(dim+j, i);}
 			}
-		}
-		Matrix<scalar_type, 3, 3> res_temp_SO3;
-		MTK::vect<3, scalar_type> seg_SO3;
-		for (std::vector<std::pair<int, int> >::iterator it = x_.SO3_state.begin(); it != x_.SO3_state.end(); it++) {
-			int idx = (*it).first;
-			int dim = (*it).second;
+		});
+
+		tbb::parallel_for<size_t>(0, x_.SO3_state.size(), 1, [&](size_t so3_idx_)
+		{
+			Matrix<scalar_type, 3, 3> res_temp_SO3;
+			MTK::vect<3, scalar_type> seg_SO3;
+			int idx = x_.SO3_state[so3_idx_].first;
+			int dim = x_.SO3_state[so3_idx_].second;
 			for(int i = 0; i < 3; i++){
 				seg_SO3(i) = -1 * f_(dim + i) * dt;
 			}
@@ -180,8 +210,8 @@ public:
 			for(int i = 0; i < process_noise_dof; i++){
 				f_w_final. template block<3, 1>(idx, i) = res_temp_SO3 * (f_w_. template block<3, 1>(dim, i));
 			}
-		}
-		
+		});
+
 		Matrix<scalar_type, 2, 3> res_temp_S2;
 		Matrix<scalar_type, 2, 2> res_temp_S2_;
 		MTK::vect<3, scalar_type> seg_S2;
@@ -250,7 +280,7 @@ public:
 				continue; 
 			}
 
-			Eigen::Matrix<scalar_type, Eigen::Dynamic, 83> h_x_ = dyn_share.h_x;
+			Eigen::Matrix<scalar_type, Eigen::Dynamic, 53> h_x_ = dyn_share.h_x;
 
 			dof_Measurement = h_x_.rows();
 			vectorized_state dx;
@@ -259,11 +289,11 @@ public:
 									
 			P_ = P_propagated;
 			
-			Matrix<scalar_type, 3, 3> res_temp_SO3;
-			MTK::vect<3, scalar_type> seg_SO3;
-			for (std::vector<std::pair<int, int> >::iterator it = x_.SO3_state.begin(); it != x_.SO3_state.end(); it++) {
-				int idx = (*it).first;
-				// int dim = (*it).second;
+			tbb::parallel_for<size_t>(0, x_.SO3_state.size(), 1, [&](size_t so3_idx_)
+			{
+				Matrix<scalar_type, 3, 3> res_temp_SO3;
+				MTK::vect<3, scalar_type> seg_SO3;
+				int idx = x_.SO3_state[so3_idx_].first;
 				for(int i = 0; i < 3; i++){
 					seg_SO3(i) = dx(idx+i);
 				}
@@ -275,7 +305,7 @@ public:
 				for(int i = 0; i < n; i++){
 					P_. template block<1, 3>(i, idx) =(P_. template block<1, 3>(i, idx)) *  res_temp_SO3.transpose();	
 				}
-			}
+			});
 
 			Matrix<scalar_type, 2, 2> res_temp_S2;
 			MTK::vect<2, scalar_type> seg_S2;
@@ -302,7 +332,7 @@ public:
 			if(n > dof_Measurement)
 			{
 				Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_x_cur = Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Zero(dof_Measurement, n);
-				h_x_cur.topLeftCorner(dof_Measurement, 83) = h_x_;
+				h_x_cur.topLeftCorner(dof_Measurement, 53) = h_x_;
 				
 				Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> K_ = P_ * h_x_cur.transpose() * (h_x_cur * P_ * h_x_cur.transpose()/R + Eigen::Matrix<double, Dynamic, Dynamic>::Identity(dof_Measurement, dof_Measurement)).inverse()/R;
 				K_h = K_ * dyn_share.h;
@@ -311,12 +341,12 @@ public:
 			else
 			{
 				cov P_temp = (P_/R).inverse();
-				Eigen::Matrix<scalar_type, 83, 83> HTH = h_x_.transpose() * h_x_; 
-				P_temp. template block<83, 83>(0, 0) += HTH;
+				Eigen::Matrix<scalar_type, 53, 53> HTH = h_x_.transpose() * h_x_; 
+				P_temp. template block<53, 53>(0, 0) += HTH;
 				cov P_inv = P_temp.inverse();
-				K_h = P_inv. template block<n, 83>(0, 0) * h_x_.transpose() * dyn_share.h;
+				K_h = P_inv. template block<n, 53>(0, 0) * h_x_.transpose() * dyn_share.h;
 				K_x.setZero(); // = cov::Zero();
-				K_x. template block<n, 83>(0, 0) = P_inv. template block<n, 83>(0, 0) * HTH;
+				K_x. template block<n, 53>(0, 0) = P_inv. template block<n, 53>(0, 0) * HTH;
 			}
 
 			Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new; 
@@ -341,10 +371,12 @@ public:
 			if(t > 1 || i == maximum_iter - 1)
 			{
 				L_ = P_;
-				Matrix<scalar_type, 3, 3> res_temp_SO3;
-				MTK::vect<3, scalar_type> seg_SO3;
-				for(typename std::vector<std::pair<int, int> >::iterator it = x_.SO3_state.begin(); it != x_.SO3_state.end(); it++) {
-					int idx = (*it).first;
+
+				tbb::parallel_for<size_t>(0, x_.SO3_state.size(), 1, [&](size_t so3_idx_)
+				{
+					Matrix<scalar_type, 3, 3> res_temp_SO3;
+					MTK::vect<3, scalar_type> seg_SO3;
+					int idx = x_.SO3_state[so3_idx_].first;
 					for(int i = 0; i < 3; i++){
 						seg_SO3(i) = dx_(i + idx);
 					}
@@ -352,14 +384,14 @@ public:
 					for(int i = 0; i < n; i++){
 						L_. template block<3, 1>(idx, i) = res_temp_SO3 * (P_. template block<3, 1>(idx, i)); 
 					}
-						for(int i = 0; i < 83; i++){
+						for(int i = 0; i < 53; i++){
 							K_x. template block<3, 1>(idx, i) = res_temp_SO3 * (K_x. template block<3, 1>(idx, i));
 						}
 					for(int i = 0; i < n; i++){
 						L_. template block<1, 3>(i, idx) = (L_. template block<1, 3>(i, idx)) * res_temp_SO3.transpose();
 						P_. template block<1, 3>(i, idx) = (P_. template block<1, 3>(i, idx)) * res_temp_SO3.transpose();
 					}
-				}
+				});
 
 				Matrix<scalar_type, 2, 2> res_temp_S2;
 				MTK::vect<2, scalar_type> seg_S2;
@@ -378,7 +410,7 @@ public:
 					for(int i = 0; i < n; i++){
 						L_. template block<2, 1>(idx, i) = res_temp_S2 * (P_. template block<2, 1>(idx, i)); 
 					}
-						for(int i = 0; i < 83; i++){
+						for(int i = 0; i < 53; i++){
 							K_x. template block<2, 1>(idx, i) = res_temp_S2 * (K_x. template block<2, 1>(idx, i));
 						}
 					for(int i = 0; i < n; i++){
@@ -387,7 +419,7 @@ public:
 					}
 				}
 
-				P_ = L_ - K_x.template block<n, 83>(0, 0) * P_.template block<83, n>(0, 0);
+				P_ = L_ - K_x.template block<n, 53>(0, 0) * P_.template block<53, n>(0, 0);
 				
 				return;
 			}
@@ -447,3 +479,4 @@ public:
 } // namespace esekfom
 
 #endif //  ESEKFOM_EKF_HPP
+
