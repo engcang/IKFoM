@@ -326,7 +326,8 @@ public:
 				seg_SO3(i) = -1 * f_(dim + i) * dt;
 			}
 			MTK::SO3<scalar_type> res;
-			res.w() = MTK::exp<scalar_type, 3>(res.vec(), seg_SO3, scalar_type(1/2));
+			res.w() = MTK::exp<scalar_type, 3>(res.vec(), seg_SO3, 0.5); //note
+			// res.w() = MTK::exp<scalar_type, 3>(res.vec(), seg_SO3, scalar_type(1/2));
 		#ifdef USE_sparse
 			res_temp_SO3 = res.toRotationMatrix();
 			for(int i = 0; i < 3; i++){
@@ -358,7 +359,8 @@ public:
 			}
 			MTK::vect<2, scalar_type> vec = MTK::vect<2, scalar_type>::Zero();
 			MTK::SO3<scalar_type> res;
-			res.w() = MTK::exp<scalar_type, 3>(res.vec(), seg_S2, scalar_type(1/2));
+			// res.w() = MTK::exp<scalar_type, 3>(res.vec(), seg_S2, scalar_type(1/2));
+			res.w() = MTK::exp<scalar_type, 3>(res.vec(), seg_S2, 0.5); //note
 			Eigen::Matrix<scalar_type, 2, 3> Nx;
 			Eigen::Matrix<scalar_type, 3, 2> Mx;
 			x_.S2_Nx_yy(Nx, idx);

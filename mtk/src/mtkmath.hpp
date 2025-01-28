@@ -187,8 +187,9 @@ Eigen::Matrix<typename Base::scalar, 3, 3> A_inv_trans(const Base& v){
     Eigen::Matrix<typename Base::scalar, 3, 3> res;
     if(v.norm() > MTK::tolerance<typename Base::scalar>())
     {
-        res = Eigen::Matrix<typename Base::scalar, 3, 3>::Identity() + 0.5 * hat<Base>(v) + (1 - v.norm() * std::cos(v.norm() / 2) / 2 / std::sin(v.norm() / 2)) * hat(v) * hat(v) / v.squaredNorm();
-    
+		//note
+        res = Eigen::Matrix<typename Base::scalar, 3, 3>::Identity() + 0.5 * hat<Base>(v) + (1 - v.norm() * std::cos(v.norm() / 2.0) / 2.0 / std::sin(v.norm() / 2.0)) * hat(v) * hat(v) / v.squaredNorm();
+        // res = Eigen::Matrix<typename Base::scalar, 3, 3>::Identity() + 0.5 * hat<Base>(v) + (1 - v.norm() * std::cos(v.norm() / 2) / 2 / std::sin(v.norm() / 2)) * hat(v) * hat(v) / v.squaredNorm();
     }
     else
     {
@@ -203,8 +204,9 @@ Eigen::Matrix<typename Base::scalar, 3, 3> A_inv(const Base& v){
     Eigen::Matrix<typename Base::scalar, 3, 3> res;
     if(v.norm() > MTK::tolerance<typename Base::scalar>())
     {
-        res = Eigen::Matrix<typename Base::scalar, 3, 3>::Identity() - 0.5 * hat<Base>(v) + (1 - v.norm() * std::cos(v.norm() / 2) / 2 / std::sin(v.norm() / 2)) * hat(v) * hat(v) / v.squaredNorm();
-    
+		//note
+        res = Eigen::Matrix<typename Base::scalar, 3, 3>::Identity() - 0.5 * hat<Base>(v) + (1 - v.norm() * std::cos(v.norm() / 2.0) / 2.0 / std::sin(v.norm() / 2.0)) * hat(v) * hat(v) / v.squaredNorm();
+        // res = Eigen::Matrix<typename Base::scalar, 3, 3>::Identity() - 0.5 * hat<Base>(v) + (1 - v.norm() * std::cos(v.norm() / 2) / 2 / std::sin(v.norm() / 2)) * hat(v) * hat(v) / v.squaredNorm();
     }
     else
     {
