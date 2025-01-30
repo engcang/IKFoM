@@ -407,6 +407,7 @@ namespace esekfom
                 K_x.template block<FIXED_STATE_SIZE, n>(n - FIXED_STATE_SIZE, 0).setZero(); //note
 
                 Eigen::Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - Eigen::Matrix<scalar_type, n, n>::Identity()) * dx_new;
+                dx_.template block<FIXED_STATE_SIZE, 1>(n - FIXED_STATE_SIZE, 0).setZero(); //note
                 state x_before = x_;
                 x_.boxplus(dx_);
                 dyn_share.converge = true;
@@ -442,10 +443,10 @@ namespace esekfom
                             seg_SO3(i) = dx_(i + idx);
                         }
                         res_temp_SO3 = MTK::A_matrix(seg_SO3).transpose();
-                        for(int i = 0; i < n; i++)
-                        {
+                        // for(int i = 0; i < n; i++)
+                        // {
                             // L_. template block<3, 1>(idx, i) = res_temp_SO3 * (P_. template block<3, 1>(idx, i)); //todo delete
-                        }
+                        // }
                         // for(int i = 0; i < 6; i++)
                         // for(int i = n-6; i < n; i++) //note
                         // for(int i = n-UPDATE_JACOBIAN_SIZE; i < n; i++) //note
@@ -476,10 +477,10 @@ namespace esekfom
                         x_.S2_Nx_yy(Nx, idx);
                         x_propagated.S2_Mx(Mx, seg_S2, idx);
                         res_temp_S2 = Nx * Mx;
-                        for (int i = 0; i < n; i++)
-                        {
+                        // for (int i = 0; i < n; i++)
+                        // {
                             // L_.template block<2, 1>(idx, i) = res_temp_S2 * (P_.template block<2, 1>(idx, i)); //todo delete
-                        }
+                        // }
                         // for (int i = 0; i < 6; i++)
                         // for (int i = n-6; i < n; i++) //note
                         // for (int i = n-UPDATE_JACOBIAN_SIZE; i < n; i++) //note
