@@ -291,7 +291,8 @@ namespace esekfom
 
             Eigen::Matrix<scalar_type, n, 1> K_h;
             Eigen::Matrix<scalar_type, n, n> K_x;
-            Eigen::Matrix<scalar_type, n, n> K_R_KT_;
+            Eigen::Matrix<scalar_type, n, n> K_R_KT;
+            Eigen::Matrix<scalar_type, n, n> K_R_KT_active = Eigen::Matrix<scalar_type, n, n>::Zero();
 
             vectorized_state dx_new = vectorized_state::Zero();
             for (int i = -1; i < maximum_iter; i++)
@@ -314,7 +315,7 @@ namespace esekfom
                 // idea: UPDATE_JACOBIAN_SIZE is for fast calculation, FIXED_STATE_SIZE is for fixed states (K = 0)
                 constexpr int UPDATE_JACOBIAN_SIZE = 6 + SLIDING_WINDOW_SIZE * 6;
                 constexpr int FIXED_STATE_SIZE = PASSIVE_WINDOW_SIZE * 6;
-                // Eigen::Matrix<scalar_type, Eigen::Dynamic, 6> h_x_ = dyn_share.h_x; // note the dimension: (1+sw size) x 6
+                // Eigen::Matrix<scalar_type, Eigen::Dynamic, 6> h_x_ = dyn_share.h_x;
                 Eigen::Matrix<scalar_type, Eigen::Dynamic, UPDATE_JACOBIAN_SIZE> h_x_ = dyn_share.h_x; // note the dimension: (1+sw size) x 6
                 dof_Measurement = h_x_.rows();
                 vectorized_state dx;
@@ -375,40 +376,37 @@ namespace esekfom
                 {
                     Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_x_cur = Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Zero(dof_Measurement, n);
                     // h_x_cur.topLeftCorner(dof_Measurement, 6) = h_x_;
-                    // h_x_cur.topRightCorner(dof_Measurement, 6) = h_x_; //note
                     h_x_cur.topRightCorner(dof_Measurement, UPDATE_JACOBIAN_SIZE) = h_x_; //note
 
                     Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> K_ = P_ * h_x_cur.transpose() * (h_x_cur * P_ * h_x_cur.transpose() / _R + Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Identity(dof_Measurement, dof_Measurement)).inverse() / _R;
                     K_h = K_ * dyn_share.h;
                     K_x = K_ * h_x_cur;
-                    K_R_KT_ = K_ * K_.transpose() * _R; //note
+                    K_R_KT = K_ * K_.transpose() * _R; //note
                 }
                 else
                 {
                     cov P_temp = (P_ / _R).inverse();
                     // Eigen::Matrix<scalar_type, 6, 6> HTH = h_x_.transpose() * h_x_;
-                    Eigen::Matrix<scalar_type, UPDATE_JACOBIAN_SIZE, UPDATE_JACOBIAN_SIZE> HTH = h_x_.transpose() * h_x_;
                     // P_temp.template block<6, 6>(0, 0) += HTH;
-                    // P_temp.template block<6, 6>(n-6, n-6) += HTH; //note
+                    Eigen::Matrix<scalar_type, UPDATE_JACOBIAN_SIZE, UPDATE_JACOBIAN_SIZE> HTH = h_x_.transpose() * h_x_;                         //note
                     P_temp.template block<UPDATE_JACOBIAN_SIZE, UPDATE_JACOBIAN_SIZE>(n - UPDATE_JACOBIAN_SIZE, n - UPDATE_JACOBIAN_SIZE) += HTH; //note
                     cov P_inv = P_temp.inverse();
 
                     // K_h = P_inv.template block<n, 6>(0, 0) * h_x_.transpose() * dyn_share.h;
-                    // K_h = P_inv.template block<n, 6>(0, n-6) * h_x_.transpose() * dyn_share.h; //note
                     K_h = P_inv.template block<n, UPDATE_JACOBIAN_SIZE>(0, n - UPDATE_JACOBIAN_SIZE) * h_x_.transpose() * dyn_share.h; //note
 
-                    K_x.setZero(); // = cov::Zero();
+                    K_x.setZero();
                     // K_x.template block<n, 6>(0, 0) = P_inv.template block<n, 6>(0, 0) * HTH;
-                    // K_x.template block<n, 6>(0, n-6) = P_inv.template block<n, 6>(0, n-6) * HTH; //note
-                    K_x.template block<n, UPDATE_JACOBIAN_SIZE>(0, n - UPDATE_JACOBIAN_SIZE) = P_inv.template block<n, UPDATE_JACOBIAN_SIZE>(0, n - UPDATE_JACOBIAN_SIZE) * HTH;                              //note
-                    K_R_KT_ = P_inv.template block<n, UPDATE_JACOBIAN_SIZE>(0, n - UPDATE_JACOBIAN_SIZE) * HTH * P_inv.template block<n, UPDATE_JACOBIAN_SIZE>(0, n - UPDATE_JACOBIAN_SIZE).transpose() * _R; //note Joseph form
+                    K_x.template block<n, UPDATE_JACOBIAN_SIZE>(0, n - UPDATE_JACOBIAN_SIZE) = P_inv.template block<n, UPDATE_JACOBIAN_SIZE>(0, n - UPDATE_JACOBIAN_SIZE) * HTH;                             //note
+                    K_R_KT = P_inv.template block<n, UPDATE_JACOBIAN_SIZE>(0, n - UPDATE_JACOBIAN_SIZE) * HTH * P_inv.template block<n, UPDATE_JACOBIAN_SIZE>(0, n - UPDATE_JACOBIAN_SIZE).transpose() * _R; //note Joseph form
                 }
-                K_h.template block<FIXED_STATE_SIZE, 1>(n - FIXED_STATE_SIZE, 0).setZero(); //note
-                K_x.template block<FIXED_STATE_SIZE, n>(n - FIXED_STATE_SIZE, 0).setZero(); //note
+                K_R_KT_active.template block<n - FIXED_STATE_SIZE, n - FIXED_STATE_SIZE>(0, 0) = K_R_KT.template block<n - FIXED_STATE_SIZE, n - FIXED_STATE_SIZE>(0, 0); //note
+                K_h.template block<FIXED_STATE_SIZE, 1>(n - FIXED_STATE_SIZE, 0).setZero();                                                                               //note
+                K_x.template block<FIXED_STATE_SIZE, n>(n - FIXED_STATE_SIZE, 0).setZero();                                                                               //note
+                Eigen::Matrix<scalar_type, n, n> I_with_zeros = Eigen::Matrix<scalar_type, n, n>::Identity();                                                             //note
+                I_with_zeros.template block<FIXED_STATE_SIZE, FIXED_STATE_SIZE>(n - FIXED_STATE_SIZE, n - FIXED_STATE_SIZE).setZero();                                    //note
 
-                Eigen::Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - Eigen::Matrix<scalar_type, n, n>::Identity()) * dx_new;
-                dx_.template block<FIXED_STATE_SIZE, 1>(n - FIXED_STATE_SIZE, 0).setZero(); //note
-                state x_before = x_;
+                Eigen::Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - I_with_zeros) * dx_new; //note
                 x_.boxplus(dx_);
                 dyn_share.converge = true;
                 for (int i = 0; i < n; i++)
@@ -448,8 +446,6 @@ namespace esekfom
                             // L_. template block<3, 1>(idx, i) = res_temp_SO3 * (P_. template block<3, 1>(idx, i)); //todo delete
                         // }
                         // for(int i = 0; i < 6; i++)
-                        // for(int i = n-6; i < n; i++) //note
-                        // for(int i = n-UPDATE_JACOBIAN_SIZE; i < n; i++) //note
                         for(int i = n-UPDATE_JACOBIAN_SIZE; i < n-FIXED_STATE_SIZE; i++) //note
                         {
                             K_x. template block<3, 1>(idx, i) = res_temp_SO3 * (K_x. template block<3, 1>(idx, i));
@@ -479,10 +475,8 @@ namespace esekfom
                         res_temp_S2 = Nx * Mx;
                         // for (int i = 0; i < n; i++)
                         // {
-                            // L_.template block<2, 1>(idx, i) = res_temp_S2 * (P_.template block<2, 1>(idx, i)); //todo delete
+                        // L_.template block<2, 1>(idx, i) = res_temp_S2 * (P_.template block<2, 1>(idx, i)); //todo delete
                         // }
-                        // for (int i = 0; i < 6; i++)
-                        // for (int i = n-6; i < n; i++) //note
                         // for (int i = n-UPDATE_JACOBIAN_SIZE; i < n; i++) //note
                         for (int i = n - UPDATE_JACOBIAN_SIZE; i < n - FIXED_STATE_SIZE; i++) //note
                         {
@@ -496,12 +490,9 @@ namespace esekfom
                     }
 
                     // P_ = L_ - K_x.template block<n, 6>(0, 0) * P_.template block<6, n>(0, 0);
-                    // P_ = L_ - K_x.template block<n, 6>(0, n-6) * P_.template block<6, n>(n-6, 0); //note
-                    // P_ = L_ - K_x.template block<n, UPDATE_JACOBIAN_SIZE>(0, n-UPDATE_JACOBIAN_SIZE) * P_.template block<UPDATE_JACOBIAN_SIZE, n>(n-UPDATE_JACOBIAN_SIZE, 0); //note
-
                     // idea: Joseph form is essential for numerical stability
                     Eigen::Matrix<scalar_type, n, n> I_KH = Eigen::Matrix<scalar_type, n, n>::Identity() - K_x;
-                    P_ = I_KH * P_ * I_KH.transpose() + K_R_KT_;
+                    P_ = I_KH * P_ * I_KH.transpose() + K_R_KT;
                     return;
                 }
             }
